@@ -538,6 +538,23 @@ export function createMcpServer(): McpServer {
     version: "1.0.0",
   });
 
+// MCP tool annotations, passed as the 4th argument to mcpServer.tool().
+//
+// ChatGPT's MCP reviewer scans for these and a missing readOnlyHint is the
+// single most common rejection reason. read-only is accurate here, not a
+// formality: all six tools take their inputs as arguments, compute purely in
+// process, and return text. Nothing writes to disk, opens a socket, calls a
+// third party, or reads environment state, so repeated calls with the same
+// arguments always return the same result (idempotent) and nothing can be
+// destroyed (destructiveHint false). openWorldHint is false for the same
+// reason -- the tools never touch anything outside their own inputs.
+const READ_ONLY_ANNOTATIONS = {
+  readOnlyHint: true,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: false,
+} as const;
+
 // Tool 1: write a blog outline
 mcpServer.tool(
   "generate_blog_outline",
@@ -546,6 +563,7 @@ mcpServer.tool(
     keyword: z.string().min(1).describe("The primary keyword or topic for the blog post, e.g. 'local SEO'"),
     audience: z.string().min(1).describe("The target audience, e.g. 'freelance writers'"),
   },
+  READ_ONLY_ANNOTATIONS,
   async ({ keyword, audience }) => {
     try {
       const data = generateBlogOutline(keyword, audience);
@@ -576,6 +594,7 @@ mcpServer.tool(
       .min(1)
       .describe("List of posts (up to 20) with titles and optional topics"),
   },
+  READ_ONLY_ANNOTATIONS,
   async ({ posts }) => {
     try {
       const data = bulkGenerateMetadata(posts);
@@ -605,6 +624,7 @@ mcpServer.tool(
       .optional()
       .describe("Optional posts per week, whole number 1-7 (default 3 = Monday, Wednesday, Friday)"),
   },
+  READ_ONLY_ANNOTATIONS,
   async ({ keywords, posts_per_week }) => {
     try {
       const data = planContentCalendar(keywords, posts_per_week);
@@ -627,6 +647,7 @@ mcpServer.tool(
     content: z.string().min(1).max(20000).describe("The article text to score"),
     keyword: z.string().min(1).max(200).describe("The target keyword, e.g. 'how to grow tomatoes at home'"),
   },
+  READ_ONLY_ANNOTATIONS,
   async ({ content, keyword }) => {
     try {
       const err = nonEnglishContentError(content);
@@ -650,6 +671,7 @@ mcpServer.tool(
     content: z.string().min(1).max(20000).describe("The article text to analyze for semantic coverage"),
     keyword: z.string().min(1).max(200).describe("The target search keyword"),
   },
+  READ_ONLY_ANNOTATIONS,
   async ({ content, keyword }) => {
     try {
       const err = nonEnglishContentError(content);
@@ -674,6 +696,7 @@ mcpServer.tool(
     keyword: z.string().min(1).max(200).describe("The target search keyword"),
     site_name: z.string().optional().describe("Optional site name to append to the primary meta title"),
   },
+  READ_ONLY_ANNOTATIONS,
   async ({ content, keyword, site_name }) => {
     try {
       const err = nonEnglishContentError(content);
