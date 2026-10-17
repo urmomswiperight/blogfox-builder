@@ -1,0 +1,25 @@
+# Existing vault files / planning docs
+AI-Plugin-Hustle/
+AGENTS.md
+opencode.json
+opencode.json.bak
+*.mp4
+*.log
+.playwright-mcp/
+Improvement.md.txt
+[Ii]mpovement.md.txt
+Last response.md
+VID_20261012_235000_040.mp4
+
+# System & IDE files
+.obsidian/
+.idea/
+.vscode/
+Thumbs.db
+[Dd]esktop.ini
+$RECYCLE.BIN/
+node_modules/
+dist/
+build/
+.env
+.env.*
