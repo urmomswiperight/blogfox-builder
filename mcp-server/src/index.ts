@@ -1207,7 +1207,10 @@ function parseJsonBody(req: http.IncomingMessage): Promise<any> {
   });
 }
 
-async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+// Exported so the Vercel serverless entry (api/index.ts) can route every
+// request through the same handler. Signature is a plain Node (req, res)
+// pair, which is exactly what @vercel/node accepts.
+export async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
   const parsedUrl = new URL(req.url || "/", `http://${req.headers.host || "localhost:3002"}`);
   const pathname = parsedUrl.pathname;
 
@@ -1243,6 +1246,9 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
           { name: "generate_blog_outline", phrase: "write a blog outline" },
           { name: "bulk_generate_metadata", phrase: "generate meta descriptions for many posts" },
           { name: "plan_content_calendar", phrase: "plan my content calendar" },
+          { name: "score_content_against_keyword", phrase: "improve my content score" },
+          { name: "suggest_semantic_terms", phrase: "what words am I missing to rank higher" },
+          { name: "rewrite_meta_tags", phrase: "rewrite my meta tags with high CTR hooks" },
         ],
       })
     );
@@ -1547,7 +1553,12 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
 
 // Any rejection inside the request handler is turned into a 500 response
 // instead of an unhandled rejection, which would kill the whole process.
-const httpServer = http.createServer((req, res) => {
+//
+// On Vercel the serverless entry imports handleRequest directly and no socket
+// is bound here — binding at import time would hang the function. VERCEL is set
+// automatically by the platform; locally it is unset, so `npm start` is
+// unchanged.
+export const httpServer = http.createServer((req, res) => {
   handleRequest(req, res).catch((err: any) => {
     console.error("Unhandled request error:", err);
     if (!res.headersSent) {
@@ -1563,7 +1574,8 @@ const httpServer = http.createServer((req, res) => {
   });
 });
 
-httpServer.listen(PORT, () => {
+if (!process.env.VERCEL) {
+  httpServer.listen(PORT, () => {
   console.log(`====================================================`);
   console.log(`🚀 ChatGPT Plugin & MCP Server running on port ${PORT}`);
   console.log(`   Interactive Web UI : http://localhost:${PORT}/`);
@@ -1578,4 +1590,5 @@ httpServer.listen(PORT, () => {
   console.log(` 2. bulk_generate_metadata -> "generate meta descriptions for many posts"`);
   console.log(` 3. plan_content_calendar -> "plan my content calendar"`);
   console.log(`====================================================`);
-});
+  });
+}
