@@ -159,6 +159,41 @@ const check = (name, ok, detail = "") => {
   check("no localhost left in manifest or servers", !JSON.stringify(manifest).includes("localhost") && !JSON.stringify(spec.servers).includes("localhost"));
 }
 
+// 9. SSE must fail fast on serverless. The transport needs a socket that
+//    outlives the invocation plus a session map shared between the /sse
+//    handshake and the /messages POST; neither exists here. Before this guard
+//    the endpoint accepted the connection and then hung indefinitely, which
+//    holds a billed invocation open and would stall a reviewer's scanner.
+{
+  const withTimeout = (ms, promise) => Promise.race([
+    promise,
+    new Promise((_, rej) => setTimeout(() => rej(new Error("timed out after " + ms + "ms -- endpoint is hanging")), ms).unref?.()),
+  ]);
+
+  const sseStart = Date.now();
+  try {
+    const r = await withTimeout(4000, fetch(base + "/sse", { headers: { accept: "text/event-stream" } }));
+    check("/sse on serverless returns 503", r.status === 503, "status " + r.status);
+    const body = await r.json();
+    check("/sse 503 points callers at /mcp", typeof body.use === "string" && body.use.includes("POST /mcp"), body.use);
+    check("/sse responds fast instead of hanging", Date.now() - sseStart < 3000, (Date.now() - sseStart) + "ms");
+  } catch (e) {
+    check("/sse on serverless returns 503 quickly", false, e.message);
+  }
+
+  const msgStart = Date.now();
+  try {
+    const r = await withTimeout(4000, fetch(base + "/messages?sessionId=none", {
+      method: "POST", headers: { "content-type": "application/json" }, body: "{}",
+    }));
+    check("/messages on serverless returns 503", r.status === 503, "status " + r.status);
+    check("/messages 503 points callers at /mcp", (await r.json()).use?.includes("POST /mcp"));
+    check("/messages responds fast instead of hanging", Date.now() - msgStart < 3000, (Date.now() - msgStart) + "ms");
+  } catch (e) {
+    check("/messages on serverless returns 503 quickly", false, e.message);
+  }
+}
+
 const pass = results.filter((x) => x.ok).length;
 const allOk = pass === results.length;
 console.log("\n===== " + pass + "/" + results.length + " serverless checks passed =====");

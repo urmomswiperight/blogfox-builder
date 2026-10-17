@@ -1639,6 +1639,27 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
 
   // 9. MCP SSE endpoint (one dedicated server per SSE connection)
   if (pathname === "/sse" && req.method === "GET") {
+    // SSE needs one long-lived socket plus the sseTransports map to survive
+    // between the GET /sse handshake and the follow-up POST /messages. A
+    // serverless invocation has neither: the socket is torn down when the
+    // function returns and each POST lands in a fresh instance with an empty
+    // map, so the handshake would succeed and then every message would 404.
+    // Rather than accept a connection that cannot work -- and hold a billed
+    // invocation open indefinitely -- fail fast and point at /mcp, which is
+    // stateless and needs no session.
+    if (process.env.VERCEL) {
+      res.writeHead(503, {
+        "Content-Type": "application/json",
+        "Cache-Control": "no-store",
+        "Link": '</mcp>; rel="alternate"; title="Stateless Streamable HTTP endpoint"',
+      });
+      res.end(JSON.stringify({
+        error: "The SSE transport is unavailable on this deployment: serverless invocations cannot hold a persistent connection between /sse and /messages.",
+        use: "POST /mcp with the stateless Streamable HTTP transport instead.",
+        docs: `${requestOrigin(req)}/health`,
+      }));
+      return;
+    }
     try {
       const transport = new SSEServerTransport("/messages", res);
       const server = createMcpServer();
@@ -1660,6 +1681,21 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
   }
 
   if (pathname === "/messages" && req.method === "POST") {
+    // Same reasoning as /sse above: this map is per-invocation, so on a
+    // serverless deployment it is always empty and no session can ever be
+    // found. Say so plainly instead of returning a misleading 404.
+    if (process.env.VERCEL) {
+      res.writeHead(503, {
+        "Content-Type": "application/json",
+        "Cache-Control": "no-store",
+        "Link": '</mcp>; rel="alternate"; title="Stateless Streamable HTTP endpoint"',
+      });
+      res.end(JSON.stringify({
+        error: "The SSE transport is unavailable on this deployment; sessions do not persist between invocations.",
+        use: "POST /mcp with the stateless Streamable HTTP transport instead.",
+      }));
+      return;
+    }
     const sessionId = parsedUrl.searchParams.get("sessionId");
     if (!sessionId || !sseTransports.has(sessionId)) {
       res.writeHead(404, { "Content-Type": "application/json" });
