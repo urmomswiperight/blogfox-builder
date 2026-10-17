@@ -10,6 +10,8 @@ const http = await import("node:http");
 // named export here is testing the exact function Vercel will serve.
 const mod = await import("./dist/index.js");
 const handler = mod.handleRequest;
+// Read from the source of truth so the assertions below cannot drift from it.
+const SUPPORT_EMAIL = mod.SUPPORT_EMAIL;
 
 if (typeof handler !== "function") {
   console.log("FAIL: default export is not a function, got " + typeof handler);
@@ -120,6 +122,41 @@ const check = (name, ok, detail = "") => {
 {
   const r = await fetch(base + "/");
   check("/ returns 200 html", r.status === 200 && (r.headers.get("content-type") || "").includes("html"), r.status + " " + (r.headers.get("content-type") || ""));
+}
+
+// 8. Legal pages + manifest/spec URLs. OpenAI's form wants distinct URLs for
+//    privacy, terms, and support, and a manifest that does not advertise
+//    localhost. Both were broken before this deploy: the routes 404'd and the
+//    manifest hardcoded http://localhost:3002. VERCEL=1 makes requestOrigin()
+//    emit https, and we send a spoofed Host to prove it follows the request.
+{
+  // Node's fetch treats `Host` as a forbidden header and drops it, so we
+  // cannot spoof the origin here. Instead assert the property that actually
+  // matters: the manifest and spec derive their URLs from the incoming
+  // request's origin (under VERCEL=1 that is https) rather than the
+  // hardcoded localhost:3002 they used to ship.
+  const host = base.replace("http://", "");
+  const expectedOrigin = "https://" + host;
+
+  for (const path of ["/privacy", "/terms", "/support", "/legal"]) {
+    const r = await fetch(base + path);
+    const t = await r.text();
+    check(path + " returns 200 html", r.status === 200 && (r.headers.get("content-type") || "").includes("html"), r.status + ", " + t.length + " bytes");
+    check(path + " carries the support contact", t.includes(SUPPORT_EMAIL));
+    check(path + " cross-links the other legal pages", ["/privacy", "/terms", "/support"].every((p) => t.includes(`href="${p}"`)));
+    check(path + " is not a placeholder notice", !/replace with your own terms/i.test(t));
+  }
+
+  const manifest = await (await fetch(base + "/.well-known/ai-plugin.json")).json();
+  check("manifest api.url derives from the request origin", manifest.api.url === expectedOrigin + "/openapi.json", manifest.api.url);
+  check("manifest logo_url derives from the request origin", manifest.logo_url === expectedOrigin + "/logo.png", manifest.logo_url);
+  check("manifest legal_info_url points at /privacy", manifest.legal_info_url === expectedOrigin + "/privacy", manifest.legal_info_url);
+  check("manifest contact_email is the SUPPORT_EMAIL constant", manifest.contact_email === SUPPORT_EMAIL, manifest.contact_email);
+  check("manifest describes all 6 tools", manifest.description_for_model.includes("6 SEO"), "mentions 6");
+
+  const spec = await (await fetch(base + "/openapi.json")).json();
+  check("openapi servers[0].url derives from the request origin", spec.servers[0].url === expectedOrigin, spec.servers[0].url);
+  check("no localhost left in manifest or servers", !JSON.stringify(manifest).includes("localhost") && !JSON.stringify(spec.servers).includes("localhost"));
 }
 
 const pass = results.filter((x) => x.ok).length;

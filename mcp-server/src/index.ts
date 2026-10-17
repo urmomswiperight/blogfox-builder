@@ -717,30 +717,50 @@ mcpServer.tool(
 
 // ─── Specifications (ChatGPT Plugin & OpenAPI) ─────────────────
 
-const AI_PLUGIN_MANIFEST = {
-  schema_version: "v1",
-  name_for_human: "Content & SEO Tools",
-  name_for_model: "content_seo_tools",
-  description_for_human: "Write blog outlines, generate meta descriptions for many posts, and plan your content calendar.",
-  description_for_model:
-    "Plugin providing 3 SEO and content creation tools. Use 'generate_blog_outline' to write a blog outline for a keyword and audience. Use 'bulk_generate_metadata' to generate meta descriptions for many posts (up to 20 posts). Use 'plan_content_calendar' to plan my content calendar for a 4-week posting schedule.",
-  auth: {
-    type: "none",
-  },
-  api: {
-    type: "openapi",
-    url: "http://localhost:3002/openapi.json",
-  },
-  logo_url: "http://localhost:3002/logo.png",
-  contact_email: "support@example.com",
-  legal_info_url: "http://localhost:3002/legal",
-};
+// Single source of truth for the contact address. OpenAI requires a real,
+// monitored support contact on the plugin manifest and the legal pages, so
+// every one of them reads it from here -- change it in this one place.
+// Exported so test-serverless.mjs can assert the pages and manifest agree
+// with it instead of duplicating the literal.
+export const SUPPORT_EMAIL = "PLACEHOLDER@gmail.com";
+
+// Origin of the current request. The manifest and OpenAPI spec must advertise
+// the public URL once deployed; they previously hardcoded localhost:3002, which
+// is wrong the moment anyone else fetches them. TLS is terminated upstream on
+// Vercel so https is always correct there; the local dev server is plain http.
+function requestOrigin(req: http.IncomingMessage): string {
+  const host = req.headers.host;
+  if (!host) return "http://localhost:3002";
+  return `${process.env.VERCEL ? "https" : "http"}://${host}`;
+}
+
+function buildPluginManifest(baseUrl: string) {
+  return {
+    schema_version: "v1",
+    name_for_human: "Content & SEO Tools",
+    name_for_model: "content_seo_tools",
+    description_for_human: "Write blog outlines, generate meta descriptions for many posts, and plan your content calendar.",
+    description_for_model:
+      "Plugin providing 6 SEO and content creation tools. Use 'generate_blog_outline' to write a blog outline for a keyword and audience. Use 'bulk_generate_metadata' to generate meta descriptions for many posts (up to 20 posts). Use 'plan_content_calendar' to plan my content calendar for a 4-week posting schedule. Use 'score_content_against_keyword' to score existing content against a keyword. Use 'suggest_semantic_terms' to find missing semantic terms. Use 'rewrite_meta_tags' to rewrite meta tags with high CTR hooks.",
+    auth: {
+      type: "none",
+    },
+    api: {
+      type: "openapi",
+      url: `${baseUrl}/openapi.json`,
+    },
+    logo_url: `${baseUrl}/logo.png`,
+    contact_email: SUPPORT_EMAIL,
+    legal_info_url: `${baseUrl}/privacy`,
+  };
+}
 
 const OPENAPI_SPEC = {
   openapi: "3.0.1",
   info: {
     title: "Content & SEO Tools Plugin",
-    description: "ChatGPT plugin for SEO tools: write a blog outline, generate meta descriptions for many posts, and plan my content calendar.",
+    description:
+      "ChatGPT plugin for SEO tools: write a blog outline, generate meta descriptions for many posts, plan my content calendar, score content against a keyword, suggest missing semantic terms, and rewrite meta tags.",
     version: "v1",
   },
   servers: [
@@ -905,31 +925,117 @@ const LOGO_PNG = Buffer.from(
   "base64"
 );
 
-const LEGAL_HTML = `<!DOCTYPE html>
+// ─── Legal pages ──────────────────────────────────────────────
+//
+// OpenAI's submission form wants distinct URLs for the privacy policy, the
+// terms of service, and a support contact. All three are built from one shell
+// so they cannot drift apart stylistically, and they link to each other with
+// relative paths so they work on any host. Every factual claim below matches
+// how the server actually behaves: read-only tools, no accounts, no persistence
+// of submitted text, no outbound calls.
+const LEGAL_STYLE = `  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; max-width: 720px; margin: 3rem auto; padding: 0 1rem; line-height: 1.6; }
+    h1 { font-size: 1.5rem; margin-bottom: 1rem; }
+    h2 { font-size: 1.1rem; margin-top: 1.75rem; margin-bottom: 0.5rem; }
+    li { margin-bottom: 0.5rem; }
+    a { color: #7dd3fc; }
+    .note { color: #94a3b8; font-size: 0.9rem; border-top: 1px solid #334155; padding-top: 1rem; margin-top: 1.5rem; }
+    nav { color: #94a3b8; font-size: 0.9rem; margin-bottom: 1.5rem; }
+  </style>`;
+
+function legalPage(title: string, bodyHtml: string) {
+  return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Legal &amp; Privacy — Content &amp; SEO Tools</title>
-  <style>
-    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; max-width: 720px; margin: 3rem auto; padding: 0 1rem; line-height: 1.6; }
-    h1 { font-size: 1.5rem; margin-bottom: 1rem; }
-    li { margin-bottom: 0.5rem; }
-    .note { color: #94a3b8; font-size: 0.9rem; border-top: 1px solid #334155; padding-top: 1rem; margin-top: 1.5rem; }
-  </style>
+  <title>${title} — Content &amp; SEO Tools</title>
+${LEGAL_STYLE}
 </head>
 <body>
-  <h1>Legal &amp; Privacy — Content &amp; SEO Tools</h1>
-  <p><strong>Content &amp; SEO Tools</strong> is a local ChatGPT plugin and MCP server. It runs entirely on your own machine (port 3002).</p>
-  <ul>
-    <li><strong>Data handling:</strong> keywords, audiences, and post titles you submit are processed in memory to build the response. They are not stored, sold, or shared.</li>
-    <li><strong>No third parties:</strong> the server performs no outbound API calls and uses no paid services.</li>
-    <li><strong>No account required:</strong> authentication type is "none". Do not expose port 3002 to the public internet.</li>
-    <li><strong>Contact:</strong> support@example.com</li>
-  </ul>
-  <p class="note">Placeholder legal notice for local development — replace with your own terms and a real contact address before distributing the plugin publicly.</p>
+  <nav><a href="/privacy">Privacy</a> &middot; <a href="/terms">Terms</a> &middot; <a href="/support">Support</a></nav>
+  <h1>${title}</h1>
+${bodyHtml}
+  <p class="note">Questions? Contact <a href="mailto:${SUPPORT_EMAIL}">${SUPPORT_EMAIL}</a>.</p>
 </body>
 </html>`;
+}
+
+const PRIVACY_HTML = legalPage(
+  "Privacy Policy",
+  `  <p><strong>Content &amp; SEO Tools</strong> is a read-only MCP server. It generates blog outlines, metadata, content calendars, content scores, and meta tags from the text you send it.</p>
+  <h2>What we receive</h2>
+  <ul>
+    <li>Only the arguments you pass to a tool: keywords, audiences, post titles, and article text.</li>
+  </ul>
+  <h2>What we do with it</h2>
+  <ul>
+    <li><strong>Processed in memory only.</strong> Your text is used to compute the response and is then discarded. It is not written to any database or file.</li>
+    <li><strong>Not persisted.</strong> Each request is handled independently. Nothing links one request to another, and no session or account exists.</li>
+    <li><strong>Never sold or shared.</strong> Submitted text is not sold, licensed, or shared with third parties.</li>
+  </ul>
+  <h2>What we do not do</h2>
+  <ul>
+    <li>No accounts, sign-up, or authentication of any kind.</li>
+    <li>No cookies, no analytics, and no tracking of any sort.</li>
+    <li>No outbound network calls. The server does not contact external APIs or paid services while handling your request.</li>
+    <li>No storage of submitted content beyond the lifetime of the request.</li>
+  </ul>
+  <h2>Changes</h2>
+  <p>This policy may be updated as the service changes. The current version always lives at this URL.</p>`,
+);
+
+const TERMS_HTML = legalPage(
+  "Terms of Service",
+  `  <p>By using <strong>Content &amp; SEO Tools</strong> you agree to these terms. If you do not agree, do not use the service.</p>
+  <h2>What the service is</h2>
+  <p>A free, read-only MCP server that generates SEO and content artifacts — blog outlines, meta descriptions, content calendars, content scores, semantic term suggestions, and rewritten meta tags — from text you provide.</p>
+  <h2>Acceptable use</h2>
+  <ul>
+    <li>Do not use the service to generate unlawful, infringing, or harmful content.</li>
+    <li>Do not attempt to disrupt, overload, or reverse engineer the service.</li>
+    <li>You are responsible for the content you submit and for how you use the output.</li>
+  </ul>
+  <h2>Output is not professional advice</h2>
+  <p>Scores, suggestions, and generated text are heuristic estimates produced by an automated tool. They are not SEO, legal, or marketing advice. Review all output before publishing it, and verify claims independently.</p>
+  <h2>No warranty</h2>
+  <p>The service is provided "as is" and "as available", without warranties of any kind, express or implied, including fitness for a particular purpose and non-infringement.</p>
+  <h2>Limitation of liability</h2>
+  <p>To the maximum extent permitted by law, the operator is not liable for any indirect, incidental, or consequential damages arising from use of the service, including lost profits, lost rankings, or lost data.</p>
+  <h2>Changes</h2>
+  <p>These terms may be updated as the service changes. Continued use after an update constitutes acceptance of the revised terms.</p>`,
+);
+
+const SUPPORT_HTML = legalPage(
+  "Support",
+  `  <p><strong>Content &amp; SEO Tools</strong> is free to use and requires no account.</p>
+  <h2>Contact</h2>
+  <p>Email <a href="mailto:${SUPPORT_EMAIL}">${SUPPORT_EMAIL}</a> for any of the following:</p>
+  <ul>
+    <li>A tool returning an unexpected result</li>
+    <li>A bug or an outage</li>
+    <li>A question about how a tool works</li>
+    <li>A privacy or data request</li>
+  </ul>
+  <h2>Before you write</h2>
+  <ul>
+    <li>The live health check is at <a href="/health">/health</a> — it lists every registered tool and confirms the server is up.</li>
+    <li>Include the tool name and the arguments you used, with any sensitive text redacted.</li>
+  </ul>
+  <h2>Privacy and terms</h2>
+  <p>See the <a href="/privacy">Privacy Policy</a> and <a href="/terms">Terms of Service</a>.</p>`,
+);
+
+// Legacy hub, kept because the plugin manifest historically pointed here.
+const LEGAL_HTML = legalPage(
+  "Legal &amp; Privacy",
+  `  <p>Legal information for <strong>Content &amp; SEO Tools</strong>.</p>
+  <ul>
+    <li><a href="/privacy">Privacy Policy</a> — what is received, what is done with it, and what is not done.</li>
+    <li><a href="/terms">Terms of Service</a> — acceptable use, no-warranty and liability terms.</li>
+    <li><a href="/support">Support</a> — how to report a problem or ask a question.</li>
+  </ul>`,
+);
 
 // ─── Web UI (Interactive 3 Buttons Dashboard) ──────────────────
 
@@ -1281,14 +1387,16 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
   // 3. ChatGPT Plugin Manifest
   if (req.method === "GET" && pathname === "/.well-known/ai-plugin.json") {
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify(AI_PLUGIN_MANIFEST, null, 2));
+    res.end(JSON.stringify(buildPluginManifest(requestOrigin(req)), null, 2));
     return;
   }
 
   // 4. OpenAPI Specs
   if (req.method === "GET" && pathname === "/openapi.json") {
     res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify(OPENAPI_SPEC, null, 2));
+    // Override the servers entry with the live origin so the spec points at
+    // this deployment rather than the local dev port.
+    res.end(JSON.stringify({ ...OPENAPI_SPEC, servers: [{ url: requestOrigin(req) }] }, null, 2));
     return;
   }
 
@@ -1312,6 +1420,24 @@ export async function handleRequest(req: http.IncomingMessage, res: http.ServerR
   if (req.method === "GET" && pathname === "/legal") {
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
     res.end(LEGAL_HTML);
+    return;
+  }
+
+  // 4d. The three distinct legal URLs OpenAI's submission form asks for:
+  // privacy_policy_url, terms_of_service_url, and a support contact page.
+  if (req.method === "GET" && pathname === "/privacy") {
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(PRIVACY_HTML);
+    return;
+  }
+  if (req.method === "GET" && pathname === "/terms") {
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(TERMS_HTML);
+    return;
+  }
+  if (req.method === "GET" && pathname === "/support") {
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(SUPPORT_HTML);
     return;
   }
 
